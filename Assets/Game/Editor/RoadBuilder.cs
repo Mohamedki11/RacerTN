@@ -6,7 +6,7 @@ using UnityEditor.SceneManagement;
 using UnityEngine;
 
 // Editor tool: cuts the OSM roads into the built terrain chunks (carve + paint).
-// Order: 1) Terrain Builder   2) Road Builder.
+// Order: 1) Terrain Builder   2) Road Builder   3) Road Mesh Builder   4) Building Builder
 // To get a clean result, rebuild the terrain first, then build the roads.
 public class RoadBuilder : EditorWindow
 {
@@ -27,10 +27,12 @@ public class RoadBuilder : EditorWindow
 
     WorldConfig config;
     string osmJsonPath = "Assets/Game/RawData/SidiBouSaid/osm_world.json";
-    float spacing = 1.5f;        // meters between road samples
-    float profileRadius = 12f;   // road height = average terrain height within this distance
+    float spacing = 1f;          // meters between road samples
+    float profileRadius = 15f;   // road height = average terrain height within this distance
     int profilePasses = 3;
-    float widthScale = 1.15f;    // slightly wider than real life: easier to drive
+    float widthScale = 1.2f;     // 1 = real-life width (streets next to buildings get narrower, to leave a pavement)
+    float maxDeviation = 1f;     // the road may sit at most this many meters above or below the original ground
+    float slopeRun = 4f;         // sides of cuts and fills: this many meters of slope per meter of height (bigger = gentler)
 
     Dictionary<Vector2Int, ChunkInfo> chunks;
     OsmWorldData data;
@@ -48,6 +50,8 @@ public class RoadBuilder : EditorWindow
         profileRadius = EditorGUILayout.FloatField("Smoothing radius (m)", profileRadius);
         profilePasses = EditorGUILayout.IntField("Smoothing passes", profilePasses);
         widthScale = EditorGUILayout.FloatField("Road width scale", widthScale);
+        maxDeviation = EditorGUILayout.FloatField("Max cut / fill (m)", maxDeviation);
+        slopeRun = EditorGUILayout.FloatField("Side slope (m per m)", slopeRun);
 
         EditorGUILayout.Space();
         if (GUILayout.Button("Build roads", GUILayout.Height(30))) Run(Build);
@@ -115,14 +119,16 @@ public class RoadBuilder : EditorWindow
     void Build()
     {
         if (!Load(true)) return;
+        RoadShaper.Prepare(data);
         float cs = config.chunkSize;
 
-        // 1) Resample the drivable roads into points
+        // 1) Resample the drivable roads into points, with a width that follows the buildings
         var samples = new List<Sample>();
         var tmp = new List<Vector2>();
         int usedRoads = 0, skippedRoads = 0;
-        foreach (var road in data.roads)
+        for (int r = 0; r < data.roads.Length; r++)
         {
+            OsmRoad road = data.roads[r];
             float width, shoulder; int layer;
             if (!RoadSpec(road, out width, out shoulder, out layer) || road.bridge || road.tunnel)
             {
@@ -130,14 +136,21 @@ public class RoadBuilder : EditorWindow
                 continue;
             }
             width *= widthScale;
+            float baseHalf = width * 0.5f;
             tmp.Clear();
             Resample(road.points, spacing, tmp);
+
+            var hw = new float[tmp.Count];
+            for (int k = 0; k < hw.Length; k++) hw[k] = RoadShaper.HalfWidth(r, tmp[k], baseHalf);
+            RoadShaper.Smooth(hw, 3);
+
             bool any = false;
-            foreach (var pt in tmp)
+            for (int k = 0; k < tmp.Count; k++)
             {
                 float hh;
-                if (!TryHeight(pt.x, pt.y, out hh)) continue;   // outside the built chunks
-                samples.Add(new Sample { pos = pt, halfWidth = width * 0.5f, shoulder = shoulder, layer = layer, elev = hh });
+                if (!TryHeight(tmp[k].x, tmp[k].y, out hh)) continue;   // outside the built chunks
+                float sh = shoulder * Mathf.Clamp(hw[k] / baseHalf, 0.3f, 1f);
+                samples.Add(new Sample { pos = tmp[k], halfWidth = hw[k], shoulder = sh, layer = layer, elev = hh });
                 any = true;
             }
             if (any) usedRoads++;
@@ -181,6 +194,18 @@ public class RoadBuilder : EditorWindow
                 next[i] = cnt > 0 ? sum / cnt : elev[i];
             }
             elev = next;
+        }
+
+        // 2b) Keep the road close to the original ground, and give any cut or fill a gentle slope.
+        //     Without this, a long smoothing can lift or sink the road several meters and leave
+        //     trenches and walls beside it.
+        for (int s = 0; s < n; s++)
+        {
+            Sample sm = samples[s];
+            float dv = Mathf.Clamp(elev[s] - sm.elev, -maxDeviation, maxDeviation);
+            elev[s] = sm.elev + dv;
+            sm.shoulder = Mathf.Max(sm.shoulder, Mathf.Abs(dv) * slopeRun);
+            samples[s] = sm;
         }
 
         // 3) Carve and paint every chunk
@@ -228,7 +253,7 @@ public class RoadBuilder : EditorWindow
                         float d = Mathf.Sqrt(px * px + pz * pz);
                         if (d > outer) continue;
                         float w = d <= sm.halfWidth ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (d - sm.halfWidth) / sm.shoulder);
-                        float score = w - d * 0.001f;   // highest weight wins, nearest road point breaks ties
+                        float score = w - d * 0.001f;   // highest weight wins, the nearest road point breaks ties
                         if (score > bestScore[j, i])
                         {
                             bestScore[j, i] = score;
@@ -250,8 +275,9 @@ public class RoadBuilder : EditorWindow
                 }
             td.SetHeights(0, 0, heights);
 
-            // Paint the road surface into the alphamap
+            // Paint the road surface into the alphamap, with a slightly ragged edge
             int A = td.alphamapResolution;
+            float cellA = cs / A;
             var maps = td.GetAlphamaps(0, 0, A, A);
             int layers = maps.GetLength(2);
             if (layers >= 4)
@@ -261,7 +287,8 @@ public class RoadBuilder : EditorWindow
                     {
                         float w = weight[j, i];
                         if (w <= 0f) continue;
-                        float roadW = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.45f, 0.9f, w));
+                        float n2 = Mathf.PerlinNoise((c.ox + i * cellA) * 0.3f + 11.7f, (c.oz + j * cellA) * 0.3f + 5.3f) - 0.5f;
+                        float roadW = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.45f + n2 * 0.35f, 0.9f + n2 * 0.2f, w));
                         if (roadW <= 0f) continue;
                         for (int k = 0; k < layers; k++) maps[j, i, k] *= 1f - roadW;
                         maps[j, i, layerMap[j, i]] += roadW;

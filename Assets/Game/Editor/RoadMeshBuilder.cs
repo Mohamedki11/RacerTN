@@ -31,12 +31,13 @@ public class RoadMeshBuilder : EditorWindow
     WorldConfig config;
     string osmJsonPath = "Assets/Game/RawData/SidiBouSaid/osm_world.json";
     Material roadMaterial;
-    float spacing = 2f;                // meters between points along the road
-    float widthScale = 1.15f;          // keep equal to the Road Builder value
+    float spacing = 1f;                // meters between points along the road
+    float widthScale = 1f;             // keep equal to the Road Builder value
     float meshWidthFactor = 0.96f;     // strip is a little narrower than the carved road
-    float minWidthForMarkings = 7.5f;  // narrower roads stay plain asphalt
-    float lift = 0.06f;                // meters above the terrain, avoids flickering
+    float minWidthForMarkings = 4f;    // narrower roads stay plain asphalt
+    float lift = 0.08f;                // meters above the terrain, avoids flickering
     float tileLengthPerWidth = 1f;     // one texture tile is this many road-widths long
+    float markingEndClip = 8f;         // lane markings stop this far before a dead end
     bool swapAxes;                     // tick if the markings run across the road
 
     Dictionary<Vector2Int, ChunkInfo> chunks;
@@ -60,6 +61,7 @@ public class RoadMeshBuilder : EditorWindow
         minWidthForMarkings = EditorGUILayout.FloatField("Min width for markings (m)", minWidthForMarkings);
         lift = EditorGUILayout.FloatField("Lift above terrain (m)", lift);
         tileLengthPerWidth = EditorGUILayout.FloatField("Tile length per road width", tileLengthPerWidth);
+        markingEndClip = EditorGUILayout.FloatField("Markings stop before dead end (m)", markingEndClip);
         swapAxes = EditorGUILayout.Toggle("Swap texture axes", swapAxes);
 
         EditorGUILayout.Space();
@@ -125,6 +127,7 @@ public class RoadMeshBuilder : EditorWindow
     void Build()
     {
         if (!Load()) return;
+        RoadShaper.Prepare(data);
         float cs = config.chunkSize;
         GameObject root = GameObject.Find("World");
         RemoveOld(root);
@@ -148,7 +151,7 @@ public class RoadMeshBuilder : EditorWindow
             pts.Clear();
             Resample(road.points, spacing, pts);
             float roadLift = lift + (r % 8) * 0.004f; // tiny difference so crossing roads do not flicker
-            int added = AddRoad(pts, width * 0.5f * meshWidthFactor, width * tileLengthPerWidth, roadLift, meshes, cs);
+            int added = AddRoad(r, pts, width * 0.5f, width * tileLengthPerWidth, roadLift, meshes, cs);
             if (added > 0) { usedRoads++; segments += added; }
         }
 
@@ -186,7 +189,7 @@ public class RoadMeshBuilder : EditorWindow
     }
 
     // Adds one road as a strip of quads. Returns the number of quads.
-    int AddRoad(List<Vector2> p, float half, float tileLength, float roadLift,
+    int AddRoad(int roadIndex, List<Vector2> p, float baseHalf, float tileLength, float roadLift,
                 Dictionary<Vector2Int, MeshData> meshes, float cs)
     {
         int n = p.Count;
@@ -197,6 +200,12 @@ public class RoadMeshBuilder : EditorWindow
         var ok = new bool[n];
         var vv = new float[n];
         float dist = 0f;
+
+        // Width that follows the buildings, varies a little, and narrows at dead ends
+        var halfs = new float[n];
+        for (int i = 0; i < n; i++) halfs[i] = RoadShaper.HalfWidth(roadIndex, p[i], baseHalf);
+        RoadShaper.Smooth(halfs, 3);
+        for (int i = 0; i < n; i++) halfs[i] *= meshWidthFactor;
 
         for (int i = 0; i < n; i++)
         {
@@ -210,13 +219,13 @@ public class RoadMeshBuilder : EditorWindow
             Vector2 nn = n0 + n1;
             nn = nn.sqrMagnitude < 1e-6f ? n0 : nn.normalized;
             float miter = 1f / Mathf.Max(0.62f, Vector2.Dot(nn, n0));
-            Vector2 off = nn * half * miter;
+            Vector2 off = nn * halfs[i] * miter;
 
             Vector2 a = p[i] + off, b = p[i] - off;
             float ha, hb; Vector3 na, nb;
             bool oka = Sample(a.x, a.y, out ha, out na);
             bool okb = Sample(b.x, b.y, out hb, out nb);
-            ok[i] = oka && okb;
+            ok[i] = oka && okb && !RoadShaper.NearDeadEnd(roadIndex, p[i], markingEndClip);
             L[i] = new Vector3(a.x, ha + roadLift, a.y);
             R[i] = new Vector3(b.x, hb + roadLift, b.y);
             NL[i] = na;

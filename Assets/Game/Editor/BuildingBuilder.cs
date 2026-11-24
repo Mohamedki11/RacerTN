@@ -60,9 +60,8 @@ public class BuildingBuilder : EditorWindow
     [SerializeField] float windowWidth = 1f, windowHeight = 1.4f, windowSill = 0.9f;
     [SerializeField] float doorWidth = 1.2f, doorHeight = 2.2f;
     [SerializeField] float minGroundHeight = 0.3f;   // buildings lower than this (in the sea) are skipped
-    [SerializeField] bool skipOnRoads = false;
-    [SerializeField] float roadClearance = 0.5f;
-    [SerializeField] float roadWidthScale = 1.15f;   // keep equal to the Road Builder value
+    [SerializeField] bool skipOnRoads = true;
+    [SerializeField] float roadClearance = 1.5f;   // keeps room for a pavement; equals RoadShaper.BuildingMargin
     [SerializeField] int seed = 1;
 
     Dictionary<Vector2Int, ChunkInfo> chunks;
@@ -116,7 +115,6 @@ public class BuildingBuilder : EditorWindow
         EditorGUILayout.LabelField("Roads", EditorStyles.boldLabel);
         skipOnRoads = EditorGUILayout.Toggle("Skip buildings on roads", skipOnRoads);
         roadClearance = EditorGUILayout.FloatField("Road clearance (m)", roadClearance);
-        roadWidthScale = EditorGUILayout.FloatField("Road width scale", roadWidthScale);
         seed = EditorGUILayout.IntField("Seed", seed);
 
         EditorGUILayout.Space();
@@ -553,7 +551,7 @@ public class BuildingBuilder : EditorWindow
         {
             float width, shoulder; int layer;
             if (!RoadBuilder.RoadSpec(road, out width, out shoulder, out layer) || road.bridge || road.tunnel) continue;
-            float half = width * roadWidthScale * 0.5f;
+            float half = RoadShaper.MinHalfWidth;   // the narrowest street the Road Builder leaves
             pts.Clear();
             Resample(road.points, 2f, pts);
             foreach (var p in pts)

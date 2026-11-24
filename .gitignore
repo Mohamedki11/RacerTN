@@ -16,3 +16,6 @@
 *.apk
 *.aab
 *.unitypackage
+# Big third-party packs (keep a backup copy outside git)
+/Assets/ThirdParty/
+/Assets/ThirdParty.meta

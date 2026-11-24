@@ -27,10 +27,19 @@ public class OsmLine
     public Vector2[] points;   // order kept: in OSM the land is on the LEFT of a coastline
 }
 
+// A ground-cover area (forest, park, farmland, beach...). One closed outline, last point NOT repeated.
+[Serializable]
+public class OsmArea
+{
+    public string kind;        // town, paved, forest, scrub, farmland, dirt, park, cemetery, beach
+    public Vector2[] points;   // game meters, same convention as the others
+}
+
 [Serializable]
 public class OsmWorldData
 {
     public OsmRoad[] roads;
     public OsmBuilding[] buildings;
     public OsmLine[] coastline;
+    public OsmArea[] areas;    // NEW: ground-cover areas
 }

@@ -13,6 +13,15 @@ public class CarInput : MonoBehaviour
         var k = Keyboard.current;
         if (k == null) return;
 
+        // While paused / result screen is open, the car gets no input.
+        if (GameState.Paused)
+        {
+            car.Throttle = 0f;
+            car.Steer = 0f;
+            car.Brake = 0f;
+            return;
+        }
+
         car.Throttle = Axis(k.wKey.isPressed || k.upArrowKey.isPressed,
                             k.sKey.isPressed || k.downArrowKey.isPressed);
         car.Steer    = Axis(k.dKey.isPressed || k.rightArrowKey.isPressed,
