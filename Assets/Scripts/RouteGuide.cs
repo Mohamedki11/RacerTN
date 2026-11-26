@@ -67,7 +67,7 @@ public class RouteGuide : MonoBehaviour
     {
         if (player == null)
         {
-            var c = FindFirstObjectByType<CarController>();
+            var c = PlayerCar.Find();
             if (c != null) player = c.transform;
         }
         if (osmJson == null || player == null)
@@ -189,6 +189,32 @@ public class RouteGuide : MonoBehaviour
                 return t.SampleHeight(new Vector3(x, 0f, z)) + p.y;
         }
         return player.position.y;
+    }
+
+    // ---------------------------------------------------------------- road API for AI cars
+
+    /// <summary>Road route for AI cars. 'path' becomes: from, road points..., to. False = no road route found.</summary>
+    public bool GetRoute(Vector3 from, Vector3 to, List<Vector2> path)
+    {
+        path.Clear();
+        if (!graphReady) return false;
+        Vector2 a2 = new Vector2(from.x, from.z), b2 = new Vector2(to.x, to.z);
+        path.Add(a2);
+        int a = Nearest(a2), b = Nearest(b2);
+        bool ok = a >= 0 && b >= 0 && FindPath(a, b, path);
+        path.Add(b2);
+        return ok;
+    }
+
+    /// <summary>The road point closest to a position (keeps the given height).</summary>
+    public bool NearestRoadPoint(Vector3 position, out Vector3 point)
+    {
+        point = position;
+        if (!graphReady) return false;
+        int i = Nearest(new Vector2(position.x, position.z));
+        if (i < 0) return false;
+        point = new Vector3(nodePos[i].x, position.y, nodePos[i].y);
+        return true;
     }
 
     // ---------------------------------------------------------------- road graph

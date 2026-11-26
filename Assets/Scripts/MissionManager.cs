@@ -36,7 +36,7 @@ public class MissionManager : MonoBehaviour
     void Awake()
     {
         Instance = this;
-        if (player == null) player = FindFirstObjectByType<CarController>();
+        if (player == null) player = PlayerCar.Find();
         if (player != null)
         {
             carReset = player.GetComponent<CarReset>();
@@ -124,6 +124,12 @@ public class MissionManager : MonoBehaviour
         MissionDialogue.Stop();
         foreach (var p in pickups) p.SetAvailable(true);
         GameState.SetPaused(false);
+    }
+
+    /// <summary>Called by the police when they catch the player during a mission.</summary>
+    public void Bust()
+    {
+        if (State == MissionState.Active) Finish(false, "Busted!");
     }
 
     // ---------- internals ----------

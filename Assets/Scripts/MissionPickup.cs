@@ -51,13 +51,13 @@ public class MissionPickup : MonoBehaviour
 
     void OnTriggerEnter(Collider other)
     {
-        if (other.GetComponentInParent<CarController>() == null) return;
+        if (other.GetComponentInParent<CarInput>() == null) return;
         if (MissionManager.Instance != null) MissionManager.Instance.SetNearby(this);
     }
 
     void OnTriggerExit(Collider other)
     {
-        if (other.GetComponentInParent<CarController>() == null) return;
+        if (other.GetComponentInParent<CarInput>() == null) return;
         if (MissionManager.Instance != null) MissionManager.Instance.ClearNearby(this);
     }
 

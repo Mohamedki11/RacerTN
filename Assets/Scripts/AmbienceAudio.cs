@@ -39,7 +39,7 @@ public class AmbienceAudio : MonoBehaviour
     {
         if (car == null)
         {
-            var c = FindFirstObjectByType<CarController>();
+            var c = PlayerCar.Find();
             if (c != null) car = c.transform;
         }
         if (car != null) carBody = car.GetComponent<Rigidbody>();
