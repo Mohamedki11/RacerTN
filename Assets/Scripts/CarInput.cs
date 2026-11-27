@@ -13,8 +13,8 @@ public class CarInput : MonoBehaviour
         var k = Keyboard.current;
         if (k == null) return;
 
-        // While paused / result screen is open, the car gets no input.
-        if (GameState.Paused)
+        // While paused, on the result screen, or flying the free camera, the car gets no input.
+        if (GameState.Paused || FreeCamera.Active)
         {
             car.Throttle = 0f;
             car.Steer = 0f;
